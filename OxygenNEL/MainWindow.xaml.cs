@@ -22,6 +22,11 @@ using Microsoft.UI.Windowing;
 using WinRT.Interop;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Composition;
+using Windows.Media.Core;
+using Windows.Media.Playback;
+using Windows.Storage;
+using WinRT;
 using OxygenNEL.Page;
 using OxygenNEL.Utils;
 using OxygenNEL.Component;
@@ -37,6 +42,17 @@ namespace OxygenNEL
         AppWindow? _appWindow;
         string _currentBackdrop = "";
         bool _mainNavigationInitialized;
+        DesktopAcrylicController? _acrylicController;
+        SystemBackdropConfiguration? _configurationSource;
+        Windows.Media.Playback.MediaPlayer? _mediaPlayer;
+        Windows.Media.Playback.MediaPlayer? _musicPlayer;
+        bool _isMusicPlaying;
+        bool _isDraggingMusicPlayer;
+        bool _isUpdatingMusicSlider;
+        Windows.Foundation.Point _dragStartPoint;
+        double _musicPlayerOffsetX;
+        double _musicPlayerOffsetY;
+        
         public static Microsoft.UI.Dispatching.DispatcherQueue? UIQueue => _instance?.DispatcherQueue;
         public static XamlRoot? DialogXamlRoot =>
             _instance == null ? null :
@@ -64,6 +80,7 @@ namespace OxygenNEL
                 _ = VerifyAndAutoLoginAsync();
             }
             UpdateAuthOverlay();
+            InitializeMusicPlayer();
             _ = CheckUpdateAsync();
         }
 
@@ -417,20 +434,268 @@ del ""%~f0""
                 var bd = OxygenNEL.Manager.SettingManager.Instance.Get().Backdrop?.Trim().ToLowerInvariant() ?? "mica";
                 if (bd != _currentBackdrop)
                 {
-                    if (bd == "acrylic")
+                    var oldAcrylicController = _acrylicController;
+                    var oldConfigurationSource = _configurationSource;
+                    _acrylicController = null;
+                    _configurationSource = null;
+
+                    if (bd == "custom")
                     {
-                        SystemBackdrop = new DesktopAcrylicBackdrop();
-                        RootGrid.Background = null;
+                        ApplyCustomBackground();
+                    }
+                    else if (bd == "acrylic")
+                    {
+                        CleanupCustomBackgroundSync();
+                        TrySetCustomAcrylic(actual);
                     }
                     else
                     {
+                        CleanupCustomBackgroundSync();
                         SystemBackdrop = new MicaBackdrop();
-                        RootGrid.Background = null;
                     }
+                    RootGrid.Background = null;
                     _currentBackdrop = bd;
+
+                    if (oldAcrylicController != null)
+                    {
+                        oldAcrylicController.Dispose();
+                    }
+                    if (oldConfigurationSource != null)
+                    {
+                        this.Activated -= Window_Activated;
+                        ((FrameworkElement)this.Content).ActualThemeChanged -= Window_ThemeChanged;
+                    }
+                }
+                else if (bd == "acrylic" && _configurationSource != null)
+                {
+                    UpdateAcrylicTheme(actual);
+                }
+                else if (bd == "custom")
+                {
+                    ApplyCustomBackground();
                 }
             }
             catch (Exception ex) { Log.Warning(ex, "应用主题失败"); }
+        }
+
+        static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".webm", ".wmv", ".avi", ".mkv" };
+
+        async void ApplyCustomBackground()
+        {
+            var path = OxygenNEL.Manager.SettingManager.Instance.Get().CustomBackgroundPath;
+
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    CleanupCustomBackgroundSync();
+                    SystemBackdrop = new MicaBackdrop();
+                });
+                return;
+            }
+
+            var fullPath = Path.GetFullPath(path);
+            var ext = Path.GetExtension(path);
+            var isVideo = VideoExtensions.Contains(ext);
+
+            try
+            {
+                if (isVideo)
+                {
+                    DispatcherQueue.TryEnqueue(async () =>
+                    {
+                        try
+                        {
+                            SystemBackdrop = null;
+                            RootGrid.Background = new SolidColorBrush(Microsoft.UI.Colors.Black);
+                            BackgroundImage.Visibility = Visibility.Collapsed;
+                            BackgroundImage.Source = null;
+
+                            CleanupVideoPlayer();
+
+                            var storageFile = await StorageFile.GetFileFromPathAsync(fullPath);
+
+                            _mediaPlayer = new Windows.Media.Playback.MediaPlayer
+                            {
+                                IsLoopingEnabled = true,
+                                Volume = 0,
+                                IsVideoFrameServerEnabled = false,
+                                RealTimePlayback = true
+                            };
+                            _mediaPlayer.CommandManager.IsEnabled = false;
+
+                            var mediaSource = MediaSource.CreateFromStorageFile(storageFile);
+                            _mediaPlayer.Source = mediaSource;
+
+                            BackgroundVideo.SetMediaPlayer(_mediaPlayer);
+                            BackgroundVideo.Visibility = Visibility.Visible;
+                            _mediaPlayer.Play();
+                            
+                            Log.Information("已应用自定义视频背景: {Path}", fullPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex, "视频播放失败");
+                            CleanupVideoPlayer();
+                            SystemBackdrop = new MicaBackdrop();
+                        }
+                    });
+                }
+                else
+                {
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        SystemBackdrop = null;
+                        RootGrid.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                        
+                        CleanupVideoPlayer();
+
+                        var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(fullPath));
+                        BackgroundImage.Source = bitmap;
+                        BackgroundImage.Visibility = Visibility.Visible;
+                        
+                        Log.Information("已应用自定义图片背景: {Path}", fullPath);
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "加载自定义背景失败: {Path}", fullPath);
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    CleanupCustomBackgroundSync();
+                    SystemBackdrop = new MicaBackdrop();
+                });
+            }
+        }
+
+        void CleanupVideoPlayer()
+        {
+            BackgroundVideo.Visibility = Visibility.Collapsed;
+            if (_mediaPlayer != null)
+            {
+                _mediaPlayer.Pause();
+                BackgroundVideo.SetMediaPlayer(null);
+                _mediaPlayer.Dispose();
+                _mediaPlayer = null;
+            }
+        }
+
+        void CleanupCustomBackgroundSync()
+        {
+            BackgroundImage.Visibility = Visibility.Collapsed;
+            BackgroundImage.Source = null;
+            CleanupVideoPlayer();
+            RootGrid.Background = null;
+        }
+
+        void CleanupCustomBackground()
+        {
+            DispatcherQueue.TryEnqueue(CleanupCustomBackgroundSync);
+        }
+
+        void CleanupAcrylicController()
+        {
+            if (_acrylicController != null)
+            {
+                _acrylicController.Dispose();
+                _acrylicController = null;
+            }
+            if (_configurationSource != null)
+            {
+                this.Activated -= Window_Activated;
+                ((FrameworkElement)this.Content).ActualThemeChanged -= Window_ThemeChanged;
+                _configurationSource = null;
+            }
+        }
+
+        void TrySetCustomAcrylic(ElementTheme theme)
+        {
+            if (!DesktopAcrylicController.IsSupported()) 
+            {
+                SystemBackdrop = new DesktopAcrylicBackdrop();
+                return;
+            }
+
+            EnsureWindowsSystemDispatcherQueueController();
+
+            _configurationSource = new SystemBackdropConfiguration();
+            this.Activated += Window_Activated;
+            this.Closed += Window_Closed;
+            ((FrameworkElement)this.Content).ActualThemeChanged += Window_ThemeChanged;
+
+            _configurationSource.IsInputActive = true;
+            UpdateAcrylicTheme(theme);
+
+            _acrylicController = new DesktopAcrylicController();
+            
+            _acrylicController.Kind = DesktopAcrylicKind.Thin;
+            _acrylicController.TintOpacity = 0.0f;
+            _acrylicController.LuminosityOpacity = 0.1f;
+            
+            _acrylicController.AddSystemBackdropTarget(this.As<ICompositionSupportsSystemBackdrop>());
+            _acrylicController.SetSystemBackdropConfiguration(_configurationSource);
+        }
+
+        Windows.System.DispatcherQueueController? _dispatcherQueueController;
+
+        void EnsureWindowsSystemDispatcherQueueController()
+        {
+            if (Windows.System.DispatcherQueue.GetForCurrentThread() != null) return;
+
+            if (_dispatcherQueueController == null)
+            {
+                DispatcherQueueOptions options;
+                options.dwSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(DispatcherQueueOptions));
+                options.threadType = 2;
+                options.apartmentType = 2;
+
+                CreateDispatcherQueueController(options, out nint controller);
+                _dispatcherQueueController = Windows.System.DispatcherQueueController.FromAbi(controller);
+            }
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct DispatcherQueueOptions
+        {
+            internal int dwSize;
+            internal int threadType;
+            internal int apartmentType;
+        }
+
+        [System.Runtime.InteropServices.DllImport("CoreMessaging.dll")]
+        static extern int CreateDispatcherQueueController(DispatcherQueueOptions options, out nint dispatcherQueueController);
+
+        void UpdateAcrylicTheme(ElementTheme theme)
+        {
+            if (_configurationSource == null) return;
+            _configurationSource.Theme = theme switch
+            {
+                ElementTheme.Dark => SystemBackdropTheme.Dark,
+                ElementTheme.Light => SystemBackdropTheme.Light,
+                _ => SystemBackdropTheme.Default
+            };
+        }
+
+        void Window_Activated(object sender, WindowActivatedEventArgs args)
+        {
+            if (_configurationSource != null)
+                _configurationSource.IsInputActive = true;
+        }
+
+        void Window_Closed(object sender, WindowEventArgs args)
+        {
+            CleanupAcrylicController();
+            CleanupCustomBackground();
+            this.Closed -= Window_Closed;
+        }
+
+        void Window_ThemeChanged(FrameworkElement sender, object args)
+        {
+            if (_configurationSource != null)
+            {
+                UpdateAcrylicTheme(((FrameworkElement)this.Content).ActualTheme);
+            }
         }
 
         public static void ApplyThemeFromSettingsStatic()
@@ -460,6 +725,207 @@ del ""%~f0""
                 tb.ButtonPressedBackgroundColor = ColorUtil.PressedBackgroundForTheme(theme);
             }
             catch (Exception ex) { Log.Warning(ex, "更新标题栏颜色失败"); }
+        }
+
+        void InitializeMusicPlayer()
+        {
+            MusicPlayerPanel.PointerPressed += MusicPlayer_PointerPressed;
+            MusicPlayerPanel.PointerMoved += MusicPlayer_PointerMoved;
+            MusicPlayerPanel.PointerReleased += MusicPlayer_PointerReleased;
+            
+            ApplyMusicPlayerSettings();
+        }
+
+        public static void ApplyMusicPlayerSettingsStatic()
+        {
+            _instance?.ApplyMusicPlayerSettings();
+        }
+
+        public static void UpdateMusicVolumeStatic(double volume)
+        {
+            if (_instance?._musicPlayer != null)
+            {
+                _instance._musicPlayer.Volume = volume;
+            }
+        }
+
+        void ApplyMusicPlayerSettings()
+        {
+            var settings = SettingManager.Instance.Get();
+            
+            if (!settings.MusicPlayerEnabled)
+            {
+                MusicPlayerPanel.Visibility = Visibility.Collapsed;
+                CleanupMusicPlayer();
+                return;
+            }
+
+            MusicPlayerPanel.Visibility = Visibility.Visible;
+
+            if (string.IsNullOrEmpty(settings.MusicPath) || !File.Exists(settings.MusicPath))
+            {
+                MusicTitle.Text = "未选择音乐";
+                CleanupMusicPlayer();
+                return;
+            }
+
+            try
+            {
+                if (_musicPlayer == null)
+                {
+                    _musicPlayer = new Windows.Media.Playback.MediaPlayer
+                    {
+                        IsLoopingEnabled = true,
+                        Volume = settings.MusicVolume
+                    };
+                    _musicPlayer.CommandManager.IsEnabled = false;
+                    _musicPlayer.MediaOpened += MusicPlayer_MediaOpened;
+                    _musicPlayer.PlaybackSession.PositionChanged += MusicPlayer_PositionChanged;
+                }
+
+                var fullPath = Path.GetFullPath(settings.MusicPath);
+                var uri = new Uri(fullPath);
+                _musicPlayer.Source = MediaSource.CreateFromUri(uri);
+                
+                var volume = settings.MusicVolume;
+                if (volume <= 0) volume = 0.5;
+                _musicPlayer.Volume = volume;
+                
+                MusicTitle.Text = Path.GetFileNameWithoutExtension(settings.MusicPath);
+                
+                _musicPlayer.Play();
+                _isMusicPlaying = true;
+                UpdateMusicPlayPauseIcon();
+                
+                Log.Information("已加载音乐: {Path}", settings.MusicPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "加载音乐失败");
+                MusicTitle.Text = "加载失败";
+            }
+        }
+
+        void CleanupMusicPlayer()
+        {
+            var player = _musicPlayer;
+            _musicPlayer = null;
+            _isMusicPlaying = false;
+            
+            if (player != null)
+            {
+                try { player.Pause(); } catch { }
+                try { player.MediaOpened -= MusicPlayer_MediaOpened; } catch { }
+                try { player.PlaybackSession.PositionChanged -= MusicPlayer_PositionChanged; } catch { }
+                try { player.Source = null; } catch { }
+                try { player.Dispose(); } catch { }
+            }
+            
+            UpdateMusicPlayPauseIcon();
+            MusicProgressSlider.Value = 0;
+            MusicTimeText.Text = "0:00";
+        }
+
+        void MusicPlayPauseBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_musicPlayer == null) return;
+
+            if (_isMusicPlaying)
+            {
+                _musicPlayer.Pause();
+                _isMusicPlaying = false;
+            }
+            else
+            {
+                _musicPlayer.Play();
+                _isMusicPlaying = true;
+            }
+            UpdateMusicPlayPauseIcon();
+        }
+
+        void UpdateMusicPlayPauseIcon()
+        {
+            MusicPlayPauseIcon.Glyph = _isMusicPlaying ? "\uE769" : "\uE768";
+        }
+
+        void MusicPlayer_MediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_musicPlayer == null) return;
+                try
+                {
+                    var duration = sender.PlaybackSession.NaturalDuration;
+                    if (duration.TotalSeconds > 0)
+                    {
+                        MusicProgressSlider.Maximum = duration.TotalSeconds;
+                    }
+                }
+                catch { }
+            });
+        }
+
+        void MusicPlayer_PositionChanged(Windows.Media.Playback.MediaPlaybackSession sender, object args)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_musicPlayer == null) return;
+                try
+                {
+                    _isUpdatingMusicSlider = true;
+                    MusicProgressSlider.Value = sender.Position.TotalSeconds;
+                    var pos = sender.Position;
+                    MusicTimeText.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
+                }
+                catch { }
+                finally { _isUpdatingMusicSlider = false; }
+            });
+        }
+
+        void MusicProgressSlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+        {
+            if (_isUpdatingMusicSlider || _musicPlayer == null) return;
+            _musicPlayer.PlaybackSession.Position = TimeSpan.FromSeconds(e.NewValue);
+        }
+
+        void MusicPlayer_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (e.OriginalSource is Microsoft.UI.Xaml.Controls.Button || 
+                e.OriginalSource is Microsoft.UI.Xaml.Controls.Slider ||
+                e.OriginalSource is Microsoft.UI.Xaml.Controls.Primitives.Thumb) return;
+
+            _isDraggingMusicPlayer = true;
+            _dragStartPoint = e.GetCurrentPoint(RootGrid).Position;
+            MusicPlayerPanel.CapturePointer(e.Pointer);
+            e.Handled = true;
+        }
+
+        void MusicPlayer_PointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (!_isDraggingMusicPlayer) return;
+
+            var currentPoint = e.GetCurrentPoint(RootGrid).Position;
+            var deltaX = currentPoint.X - _dragStartPoint.X;
+            var deltaY = currentPoint.Y - _dragStartPoint.Y;
+
+            _musicPlayerOffsetX += deltaX;
+            _musicPlayerOffsetY += deltaY;
+
+            MusicPlayerTransform.X = _musicPlayerOffsetX;
+            MusicPlayerTransform.Y = _musicPlayerOffsetY;
+
+            _dragStartPoint = currentPoint;
+            e.Handled = true;
+        }
+
+        void MusicPlayer_PointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (_isDraggingMusicPlayer)
+            {
+                _isDraggingMusicPlayer = false;
+                MusicPlayerPanel.ReleasePointerCapture(e.Pointer);
+                e.Handled = true;
+            }
         }
     }
 }

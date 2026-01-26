@@ -21,7 +21,11 @@ public sealed class AuthManager
         PropertyNameCaseInsensitive = true
     };
 
-    readonly HttpClient _http;
+    static readonly HttpClient _http = new HttpClient
+    {
+        BaseAddress = new Uri(BaseUrl, UriKind.Absolute),
+        Timeout = TimeSpan.FromSeconds(20)
+    };
     readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
 
     public string Token { get; private set; } = string.Empty;
@@ -43,15 +47,6 @@ public sealed class AuthManager
             await GetCrcSaltAsync(ct);
         }
         return CachedSalt;
-    }
-
-    AuthManager()
-    {
-        _http = new HttpClient
-        {
-            BaseAddress = new Uri(BaseUrl, UriKind.Absolute),
-            Timeout = TimeSpan.FromSeconds(20)
-        };
     }
 
     public string GetAuthFilePath()

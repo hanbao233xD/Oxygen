@@ -20,7 +20,8 @@ namespace OxygenNEL.Manager;
 
 public class SettingManager
 {
-    private const string SettingsFilePath = "setting.json";
+    private const string DataFolder = "data";
+    private static readonly string SettingsFilePath = Path.Combine(DataFolder, "setting.json");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly Lazy<SettingManager> _lazy = new(() => new SettingManager());
     public static SettingManager Instance => _lazy.Value;
@@ -30,8 +31,67 @@ public class SettingManager
 
     private SettingManager()
     {
+        EnsureDataFolder();
+        MigrateOldSettings();
         ReadFromDisk();
         _settings.PropertyChanged += (_, _) => SaveToDisk();
+    }
+
+    private static void EnsureDataFolder()
+    {
+        if (!Directory.Exists(DataFolder))
+            Directory.CreateDirectory(DataFolder);
+    }
+
+    private static void MigrateOldSettings()
+    {
+        const string oldPath = "setting.json";
+        if (File.Exists(oldPath) && !File.Exists(SettingsFilePath))
+        {
+            try
+            {
+                File.Move(oldPath, SettingsFilePath);
+                Log.Information("已迁移旧设置文件到 data 目录");
+            }
+            catch (Exception ex) { Log.Warning(ex, "迁移旧设置文件失败"); }
+        }
+    }
+
+    public static string CopyBackgroundToData(string sourcePath)
+    {
+        EnsureDataFolder();
+        var fileName = Path.GetFileName(sourcePath);
+        var destPath = Path.Combine(DataFolder, fileName);
+        
+        // 如果同名文件已存在，添加时间戳
+        if (File.Exists(destPath))
+        {
+            var name = Path.GetFileNameWithoutExtension(sourcePath);
+            var ext = Path.GetExtension(sourcePath);
+            destPath = Path.Combine(DataFolder, $"{name}_{DateTime.Now:yyyyMMddHHmmss}{ext}");
+        }
+        
+        File.Copy(sourcePath, destPath, false);
+        Log.Information("已复制背景文件到: {Path}", destPath);
+        return destPath;
+    }
+
+    public static string CopyMusicToData(string sourcePath)
+    {
+        EnsureDataFolder();
+        var fileName = Path.GetFileName(sourcePath);
+        var destPath = Path.Combine(DataFolder, fileName);
+        
+        if (File.Exists(destPath))
+        {
+            var name = Path.GetFileNameWithoutExtension(sourcePath);
+            var ext = Path.GetExtension(sourcePath);
+            destPath = Path.Combine(DataFolder, $"{name}_{DateTime.Now:yyyyMMddHHmmss}{ext}");
+        }
+        
+        File.Copy(sourcePath, destPath, false);
+        Log.Information("已复制音乐文件到: {Path}", destPath);
+        return destPath;
     }
 
     public SettingData Get() => _settings;

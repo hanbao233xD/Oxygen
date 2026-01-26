@@ -158,7 +158,7 @@ public sealed partial class RentalServerPage : Microsoft.UI.Xaml.Controls.Page, 
                             var enabled = set?.Socks5Enabled ?? false;
                             req.Socks5 = (!enabled || string.IsNullOrWhiteSpace(set?.Socks5Address))
                                 ? new EntitySocks5 { Address = string.Empty, Port = 0, Username = string.Empty, Password = string.Empty }
-                                : new EntitySocks5 { Address = set!.Socks5Address, Port = set.Socks5Port, Username = set.Socks5Username, Password = set.Socks5Password };
+                                : new EntitySocks5 { Enabled = true, Address = set!.Socks5Address, Port = set.Socks5Port, Username = set.Socks5Username, Password = set.Socks5Password };
 
                             var rStart = await Task.Run(async () => await new JoinRentalGame().Execute(req));
                             if (rStart.Success)

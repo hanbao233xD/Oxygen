@@ -41,10 +41,10 @@
                                     Tag="{x:Bind}"
                                     Visibility="{x:Bind Status, Converter={StaticResource StatusToVisibilityConverter}, ConverterParameter='offline', Mode=OneWay}"
                                     IsEnabled="{x:Bind IsLoading, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}"/>
-                            <TextBlock Text="已登录"
-                                       VerticalAlignment="Center"
-                                       Foreground="Green"
-                                       Visibility="{x:Bind Status, Converter={StaticResource StatusToVisibilityConverter}, ConverterParameter='online', Mode=OneWay}"/>
+                            <Button Content="注销"
+                                    Click="LogoutButton_Click"
+                                    Tag="{x:Bind}"
+                                    Visibility="{x:Bind Status, Converter={StaticResource StatusToVisibilityConverter}, ConverterParameter='online', Mode=OneWay}"/>
                             <Button Content="删除" Click="DeleteAccountButton_Click" Tag="{x:Bind}"/>
                         </StackPanel>
                     </Grid>

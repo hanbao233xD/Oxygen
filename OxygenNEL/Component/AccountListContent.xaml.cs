@@ -186,6 +186,23 @@ namespace OxygenNEL.Component
             }
         }
 
+        private void LogoutButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is AccountModel account)
+            {
+                try
+                {
+                    UserManager.Instance.RemoveAvailableUser(account.EntityId);
+                    NotificationHost.ShowGlobal("已注销", ToastLevel.Success);
+                    RefreshAccounts();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "注销失败");
+                }
+            }
+        }
+
         private async void AliasBox_LostFocus(object sender, RoutedEventArgs e)
         {
             if (sender is TextBox tb && tb.Tag is AccountModel account)

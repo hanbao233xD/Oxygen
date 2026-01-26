@@ -58,13 +58,7 @@ public class SConfigurationDisconnect : IPacket
 			}
 			else if (AppState.AutoDisconnectOnBan == "switch")
 			{
-				var interceptorId = connection.InterceptorId;
-				var userId = connection.Session.UserId;
-				var userToken = connection.Session.UserToken;
-				var serverId = connection.GameId;
-				var currentRole = connection.NickName;
-				
-				var interceptor = GameManager.Instance.GetInterceptor(interceptorId);
+				var interceptor = GameManager.Instance.GetInterceptor(connection.InterceptorId);
 				var serverName = interceptor?.ServerName ?? string.Empty;
 				
 				var settings = SettingManager.Instance.Get();
@@ -81,14 +75,14 @@ public class SConfigurationDisconnect : IPacket
 				{
 					await Task.Delay(500);
 					Log.Warning("检测到封禁，正在关闭当前通道并切换角色...");
-					GameManager.Instance.ShutdownInterceptor(interceptorId);
+					GameManager.Instance.ShutdownInterceptor(connection.InterceptorId);
 					
 					await BannedRoleTracker.TrySwitchToAnotherRole(
-						userId, 
-						userToken, 
-						serverId, 
+						connection.Session.UserId, 
+						connection.Session.UserToken, 
+						connection.GameId, 
 						serverName, 
-						currentRole, 
+						connection.NickName, 
 						socks5);
 				});
 			}

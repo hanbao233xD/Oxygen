@@ -25,6 +25,7 @@ public class SettingData : INotifyPropertyChanged
 
     private string _themeMode = "system";
     private string _backdrop = "mica";
+    private string _customBackgroundPath = string.Empty;
     private bool _autoCopyIpOnStart;
     private bool _debug;
     private string _autoDisconnectOnBan = "none";
@@ -34,9 +35,13 @@ public class SettingData : INotifyPropertyChanged
     private int _socks5Port = 1080;
     private string _socks5Username = string.Empty;
     private string _socks5Password = string.Empty;
+    private bool _musicPlayerEnabled;
+    private string _musicPath = string.Empty;
+    private double _musicVolume = 0.5;
 
     [JsonPropertyName("themeMode")] public string ThemeMode { get => _themeMode; set => Set(ref _themeMode, value); }
     [JsonPropertyName("backdrop")] public string Backdrop { get => _backdrop; set => Set(ref _backdrop, value); }
+    [JsonPropertyName("customBackgroundPath")] public string CustomBackgroundPath { get => _customBackgroundPath; set => Set(ref _customBackgroundPath, value); }
     [JsonPropertyName("autoCopyIpOnStart")] public bool AutoCopyIpOnStart { get => _autoCopyIpOnStart; set => Set(ref _autoCopyIpOnStart, value); }
     [JsonPropertyName("debug")] public bool Debug { get => _debug; set => Set(ref _debug, value); }
     [JsonPropertyName("autoDisconnectOnBan")] public string AutoDisconnectOnBan { get => _autoDisconnectOnBan; set => Set(ref _autoDisconnectOnBan, value); }
@@ -46,4 +51,7 @@ public class SettingData : INotifyPropertyChanged
     [JsonPropertyName("socks5Port")] public int Socks5Port { get => _socks5Port; set => Set(ref _socks5Port, value); }
     [JsonPropertyName("socks5Username")] public string Socks5Username { get => _socks5Username; set => Set(ref _socks5Username, value); }
     [JsonPropertyName("socks5Password")] public string Socks5Password { get => _socks5Password; set => Set(ref _socks5Password, value); }
+    [JsonPropertyName("musicPlayerEnabled")] public bool MusicPlayerEnabled { get => _musicPlayerEnabled; set => Set(ref _musicPlayerEnabled, value); }
+    [JsonPropertyName("musicPath")] public string MusicPath { get => _musicPath; set => Set(ref _musicPath, value); }
+    [JsonPropertyName("musicVolume")] public double MusicVolume { get => _musicVolume; set => Set(ref _musicVolume, value); }
 }

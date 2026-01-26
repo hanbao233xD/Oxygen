@@ -9,10 +9,13 @@ the Free Software Foundation, either version 3 of the License, or
 */
 using System;
 using System.Collections;
+using System.Diagnostics;
+using System.Net;
 using System.Text.Json;
 using Codexus.Cipher.Protocol;
 using Codexus.Cipher.Utils.Exception;
 using OxygenNEL.Entities.Web;
+using OxygenNEL.Entities.Web.NEL;
 using OxygenNEL.Manager;
 using OxygenNEL.type;
 using Serilog;
@@ -58,6 +61,24 @@ public class LoginX19
         catch (VerifyException ve)
         {
             Log.Error(ve, "[LoginX19] 验证失败");
+            
+            if (TryParseSecurityVerify(ve.Message) is { } verify)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = verify.VerifyUrl,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception browserEx)
+                {
+                    Log.Warning(browserEx, "[LoginX19] 打开浏览器失败");
+                }
+                return new { type = "login_x19_verify", message = verify.Reason, verify_url = verify.VerifyUrl };
+            }
+            
             return new { type = "login_x19_error", message = ve.Message};
         }
         catch (Exception ex)
@@ -71,11 +92,28 @@ public class LoginX19
             }
             
             var msg = ex.Message;
+            
             if (msg.Contains("password") || msg.Contains("密码"))
             {
                 return new { type = "login_x19_error", message = "邮箱或密码错误" };
             }
             return new { type = "login_x19_error", message = msg.Length == 0 ? "登录失败" : msg };
         }
+    }
+    
+    private static EntitySecurityVerify? TryParseSecurityVerify(string message)
+    {
+        try
+        {
+            var entity = JsonSerializer.Deserialize<EntitySecurityVerify>(message);
+            if (entity is { IsSecurityVerify: true, VerifyUrl.Length: > 0 })
+            {
+                entity.VerifyUrl = WebUtility.HtmlDecode(entity.VerifyUrl);
+                return entity;
+            }
+        }
+        catch
+        {}
+        return null;
     }
 }

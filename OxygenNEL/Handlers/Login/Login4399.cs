@@ -14,6 +14,7 @@ using Codexus.Cipher.Utils.Exception;
 using OxygenNEL.Entities.Web.NEL;
 using OxygenNEL.Manager;
 using OxygenNEL.type;
+using OxygenNEL.Utils;
 using Serilog;
 
 namespace OxygenNEL.Handlers.Login
@@ -92,6 +93,21 @@ namespace OxygenNEL.Handlers.Login
         {
             var captchaSid = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N").Substring(0, 8);
             var url = "https://ptlogin.4399.com/ptlogin/captcha.do?captchaId=" + captchaSid;
+            
+            try
+            {
+                var recognizedCaptcha = CaptchaRecognitionService.RecognizeFromUrlAsync(url).GetAwaiter().GetResult();
+                if (!string.IsNullOrWhiteSpace(recognizedCaptcha))
+                {
+                    Log.Information("[Login4399] 验证码自动识别成功: {Captcha}，正在重试登录", recognizedCaptcha);
+                    return Execute(account, password, captchaSid, recognizedCaptcha);
+                }
+            }
+            
+            catch (Exception ex)
+            {
+                Log.Warning("[Login4399] 验证码自动识别失败: {Error}", ex.Message);
+            }
             return new { type = "captcha_required", account, password, captchaIdentifier = captchaSid, captchaUrl = url };
         }
     }
