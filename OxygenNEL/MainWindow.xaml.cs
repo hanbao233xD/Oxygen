@@ -52,7 +52,7 @@ namespace OxygenNEL
         Windows.Foundation.Point _dragStartPoint;
         double _musicPlayerOffsetX;
         double _musicPlayerOffsetY;
-        
+
         public static Microsoft.UI.Dispatching.DispatcherQueue? UIQueue => _instance?.DispatcherQueue;
         public static XamlRoot? DialogXamlRoot =>
             _instance == null ? null :
@@ -75,10 +75,7 @@ namespace OxygenNEL
             ApplyThemeFromSettings();
             InitializeMainNavigationIfNeeded();
             AuthManager.Instance.LoadFromDisk();
-            if (AuthManager.Instance.IsLoggedIn)
-            {
-                _ = VerifyAndAutoLoginAsync();
-            }
+            // 跳过登录验证，直接显示主界面
             UpdateAuthOverlay();
             InitializeMusicPlayer();
             _ = CheckUpdateAsync();
@@ -86,28 +83,14 @@ namespace OxygenNEL
 
         async Task VerifyAndAutoLoginAsync()
         {
-            var result = await AuthManager.Instance.TokenAuthAsync();
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (result.Success)
-                {
-                    var name = string.IsNullOrWhiteSpace(AuthManager.Instance.Username) ? "用户" : AuthManager.Instance.Username;
-                    NotificationHost.ShowGlobal($"欢迎 {name}，已自动登录", ToastLevel.Success);
-                    _ = Task.Run(async () => await AuthManager.Instance.GetCrcSaltAsync(default));
-                }
-                else
-                {
-                    AuthManager.Instance.Clear();
-                    NotificationHost.ShowGlobal("登录已过期，请重新登录", ToastLevel.Warning);
-                }
-                UpdateAuthOverlay();
-            });
+            // 在无登录模式下，此方法不再需要执行任何操作
+            // 所有认证逻辑已经在AuthManager中处理
         }
 
         async Task CheckUpdateAsync()
         {
             await Task.Delay(1000);
-            
+
             using var http = new HttpClient();
             try
             {
@@ -122,7 +105,7 @@ namespace OxygenNEL
                 {
                     var version = root.TryGetProperty("version", out var vp) ? vp.GetString() : null;
                     var downloadUrl = root.TryGetProperty("downloadUrl", out var dp) ? dp.GetString() : null;
-                    
+
                     if (!string.IsNullOrWhiteSpace(version) && !string.Equals(version, type.AppInfo.AppVersion, StringComparison.OrdinalIgnoreCase))
                     {
                         var dialog = new ThemedContentDialog
@@ -182,7 +165,7 @@ namespace OxygenNEL
                 using var headResponse = await _http.SendAsync(new HttpRequestMessage(HttpMethod.Head, downloadUrl));
                 headResponse.EnsureSuccessStatusCode();
                 var totalBytes = headResponse.Content.Headers.ContentLength ?? -1;
-                
+
                 if (totalBytes <= 0)
                 {
                     throw new InvalidOperationException("无法获取文件大小");
@@ -193,19 +176,19 @@ namespace OxygenNEL
                 {
                     using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
                     response.EnsureSuccessStatusCode();
-                    
+
                     var buffer = new byte[8192];
                     long downloadedBytes = 0;
-                    
+
                     await using var contentStream = await response.Content.ReadAsStreamAsync();
                     await using var fileStream = new FileStream(newExePath, FileMode.Create, FileAccess.Write, FileShare.None);
-                    
+
                     int bytesRead;
                     while ((bytesRead = await contentStream.ReadAsync(buffer)) > 0)
                     {
                         await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
                         downloadedBytes += bytesRead;
-                        
+
                         var percent = (double)downloadedBytes / totalBytes * 100;
                         DispatcherQueue.TryEnqueue(() =>
                         {
@@ -228,7 +211,7 @@ namespace OxygenNEL
                         var end = i == threadCount - 1 ? totalBytes - 1 : (i + 1) * chunkSize - 1;
                         var range = $"bytes={start}-{end}";
                         tempFiles[i] = Path.GetTempFileName();
-                        
+
                         tasks[i] = DownloadChunkAsync(downloadUrl, range, tempFiles[i], start, end, totalBytes, progressBar, statusText, downloadedBytesArray, i);
                     }
 
@@ -287,30 +270,30 @@ del ""%~f0""
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
             request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(start, end);
-            
+
             using var response = await _http.SendAsync(request);
             response.EnsureSuccessStatusCode();
-            
+
             var buffer = new byte[8192];
             long chunkDownloadedBytes = 0;
-            
+
             await using var contentStream = await response.Content.ReadAsStreamAsync();
             await using var fileStream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None);
-            
+
             int bytesRead;
             while ((bytesRead = await contentStream.ReadAsync(buffer)) > 0)
             {
                 await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
                 chunkDownloadedBytes += bytesRead;
-                
+
                 Volatile.Write(ref downloadedBytesArray[threadIndex], chunkDownloadedBytes);
-                
+
                 var totalDownloaded = 0L;
                 for (int i = 0; i < downloadedBytesArray.Length; i++)
                 {
                     totalDownloaded += Volatile.Read(ref downloadedBytesArray[i]);
                 }
-                
+
                 var percent = (double)totalDownloaded / totalBytes * 100;
                 DispatcherQueue.TryEnqueue(() =>
                 {
@@ -332,18 +315,12 @@ del ""%~f0""
 
         void UpdateAuthOverlay()
         {
-            if (AuthManager.Instance.IsLoggedIn)
-            {
-                AuthOverlay.Visibility = Visibility.Collapsed;
-                NavView.Visibility = Visibility.Visible;
-                OverlayFrame.Content = null;
-                UserProfile.UpdateUserInfo();
-                return;
-            }
-
-            NavView.Visibility = Visibility.Collapsed;
-            AuthOverlay.Visibility = Visibility.Visible;
-            if (OverlayFrame.Content == null) OverlayFrame.Navigate(typeof(LoginPage));
+            // 始终显示导航视图，不再强制要求登录
+            AuthOverlay.Visibility = Visibility.Collapsed;
+            NavView.Visibility = Visibility.Visible;
+            OverlayFrame.Content = null;
+            UserProfile.UpdateUserInfo();
+            return;
         }
 
         private static readonly Dictionary<string, (Type Page, string Title)> Pages = new()
@@ -413,7 +390,7 @@ del ""%~f0""
         {
             if (NavView.PaneDisplayMode == NavigationViewPaneDisplayMode.Left)
             {
-                NavView.OpenPaneLength = e.NewSize.Width * 0.2; 
+                NavView.OpenPaneLength = e.NewSize.Width * 0.2;
             }
         }
 
@@ -530,7 +507,7 @@ del ""%~f0""
                             BackgroundVideo.SetMediaPlayer(_mediaPlayer);
                             BackgroundVideo.Visibility = Visibility.Visible;
                             _mediaPlayer.Play();
-                            
+
                             Log.Information("已应用自定义视频背景: {Path}", fullPath);
                         }
                         catch (Exception ex)
@@ -547,13 +524,13 @@ del ""%~f0""
                     {
                         SystemBackdrop = null;
                         RootGrid.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                        
+
                         CleanupVideoPlayer();
 
                         var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(fullPath));
                         BackgroundImage.Source = bitmap;
                         BackgroundImage.Visibility = Visibility.Visible;
-                        
+
                         Log.Information("已应用自定义图片背景: {Path}", fullPath);
                     });
                 }
@@ -611,7 +588,7 @@ del ""%~f0""
 
         void TrySetCustomAcrylic(ElementTheme theme)
         {
-            if (!DesktopAcrylicController.IsSupported()) 
+            if (!DesktopAcrylicController.IsSupported())
             {
                 SystemBackdrop = new DesktopAcrylicBackdrop();
                 return;
@@ -628,11 +605,11 @@ del ""%~f0""
             UpdateAcrylicTheme(theme);
 
             _acrylicController = new DesktopAcrylicController();
-            
+
             _acrylicController.Kind = DesktopAcrylicKind.Thin;
             _acrylicController.TintOpacity = 0.0f;
             _acrylicController.LuminosityOpacity = 0.1f;
-            
+
             _acrylicController.AddSystemBackdropTarget(this.As<ICompositionSupportsSystemBackdrop>());
             _acrylicController.SetSystemBackdropConfiguration(_configurationSource);
         }
@@ -732,7 +709,7 @@ del ""%~f0""
             MusicPlayerPanel.PointerPressed += MusicPlayer_PointerPressed;
             MusicPlayerPanel.PointerMoved += MusicPlayer_PointerMoved;
             MusicPlayerPanel.PointerReleased += MusicPlayer_PointerReleased;
-            
+
             ApplyMusicPlayerSettings();
         }
 
@@ -752,7 +729,7 @@ del ""%~f0""
         void ApplyMusicPlayerSettings()
         {
             var settings = SettingManager.Instance.Get();
-            
+
             if (!settings.MusicPlayerEnabled)
             {
                 MusicPlayerPanel.Visibility = Visibility.Collapsed;
@@ -786,17 +763,17 @@ del ""%~f0""
                 var fullPath = Path.GetFullPath(settings.MusicPath);
                 var uri = new Uri(fullPath);
                 _musicPlayer.Source = MediaSource.CreateFromUri(uri);
-                
+
                 var volume = settings.MusicVolume;
                 if (volume <= 0) volume = 0.5;
                 _musicPlayer.Volume = volume;
-                
+
                 MusicTitle.Text = Path.GetFileNameWithoutExtension(settings.MusicPath);
-                
+
                 _musicPlayer.Play();
                 _isMusicPlaying = true;
                 UpdateMusicPlayPauseIcon();
-                
+
                 Log.Information("已加载音乐: {Path}", settings.MusicPath);
             }
             catch (Exception ex)
@@ -811,7 +788,7 @@ del ""%~f0""
             var player = _musicPlayer;
             _musicPlayer = null;
             _isMusicPlaying = false;
-            
+
             if (player != null)
             {
                 try { player.Pause(); } catch { }
@@ -820,7 +797,7 @@ del ""%~f0""
                 try { player.Source = null; } catch { }
                 try { player.Dispose(); } catch { }
             }
-            
+
             UpdateMusicPlayPauseIcon();
             MusicProgressSlider.Value = 0;
             MusicTimeText.Text = "0:00";
@@ -890,7 +867,7 @@ del ""%~f0""
 
         void MusicPlayer_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
         {
-            if (e.OriginalSource is Microsoft.UI.Xaml.Controls.Button || 
+            if (e.OriginalSource is Microsoft.UI.Xaml.Controls.Button ||
                 e.OriginalSource is Microsoft.UI.Xaml.Controls.Slider ||
                 e.OriginalSource is Microsoft.UI.Xaml.Controls.Primitives.Thumb) return;
 

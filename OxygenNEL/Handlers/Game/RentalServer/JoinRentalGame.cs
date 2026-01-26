@@ -89,7 +89,7 @@ public class JoinRentalGame
         string shortVersion = "";
         if (versionMatch.Success)
         {
-            fullVersion = versionMatch.Groups[1].Value; 
+            fullVersion = versionMatch.Groups[1].Value;
             var parts = fullVersion.Split('.');
             shortVersion = parts[0] + "." + parts[1];
         }
@@ -101,7 +101,7 @@ public class JoinRentalGame
                 shortVersion = shortMatch.Groups[1].Value;
             }
         }
-        
+
         string resolvedVersion;
         if (!string.IsNullOrEmpty(fullVersion) && Md5Mapping.TryGetMd5FromGameVersion(fullVersion, out _))
         {
@@ -115,7 +115,7 @@ public class JoinRentalGame
         {
             resolvedVersion = !string.IsNullOrEmpty(fullVersion) ? fullVersion : shortVersion;
         }
-        
+
         versionName = resolvedVersion;
         Log.Debug("[RentalServer] 解析版本: {Original} -> full={Full}, short={Short}, resolved={Resolved}", mcVersion, fullVersion, shortVersion, versionName);
         var gameVersion = GameVersionUtil.GetEnumFromGameVersion(versionName);
@@ -156,7 +156,7 @@ public class JoinRentalGame
             roleId,
             available.UserId,
             available.AccessToken,
-            delegate(string certification)
+            delegate (string certification)
             {
                 Log.Logger.Information("Rental server certification: {Certification}", certification);
                 Task.Run(async delegate

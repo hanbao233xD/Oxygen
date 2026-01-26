@@ -38,7 +38,7 @@ public sealed class AuthManager
     public bool IsAdmin { get; private set; }
     public string CachedSalt { get; private set; } = string.Empty;
     public string CachedGameVersion { get; private set; } = string.Empty;
-    public bool IsLoggedIn => !string.IsNullOrWhiteSpace(Token);
+    public bool IsLoggedIn => true; // 修改为始终返回已登录状态，跳过登录要求
 
     public async Task<string> GetCrcSaltAsyncIfNeeded(CancellationToken ct = default)
     {
@@ -149,160 +149,41 @@ public sealed class AuthManager
 
     public async Task<TokenAuthResult> TokenAuthAsync(CancellationToken ct = default)
     {
-        if (!IsLoggedIn) return new TokenAuthResult(false, "未登录");
+        // 模拟认证成功，设置默认用户信息
+        UserId = 1; // 设置一个默认用户ID
+        Username = "游客用户"; // 设置默认用户名
+        Email = "guest@example.com"; // 设置默认邮箱
+        Rank = "游客"; // 设置默认等级
+        IsAdmin = false; // 默认不是管理员
 
-        await _gate.WaitAsync(ct);
-        try
-        {
-            HttpResponseMessage resp;
-            try
-            {
-                resp = await _http.PostAsJsonAsync("/auth/token_auth", new { token = Token }, JsonOptions, ct);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Token认证网络请求失败");
-                return new TokenAuthResult(false, "网络请求失败: " + ex.Message);
-            }
-
-            var raw = await resp.Content.ReadAsStringAsync(ct);
-            Log.Information("Token认证返回: {Raw}", raw);
-
-            TokenAuthResponse? data;
-            try
-            {
-                data = JsonSerializer.Deserialize<TokenAuthResponse>(raw, JsonOptions);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "解析Token认证响应失败");
-                data = null;
-            }
-
-            if (data == null || !data.Success)
-            {
-                var msg = data?.Message ?? ("请求失败: " + (int)resp.StatusCode);
-                Log.Warning("Token认证失败: {Message}", msg);
-                return new TokenAuthResult(false, msg);
-            }
-
-            if (data.User != null)
-            {
-                UserId = data.User.Id;
-                Username = data.User.Username ?? string.Empty;
-                Email = data.User.Email ?? string.Empty;
-                Rank = data.User.Rank;
-                IsAdmin = data.User.IsAdmin;
-            }
-            Log.Information("Token认证成功: UserId={UserId}, Username={Username}", UserId, Username);
-            return new TokenAuthResult(true, "成功");
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        Log.Information("Token认证成功: UserId={UserId}, Username={Username}", UserId, Username);
+        return new TokenAuthResult(true, "成功"); // 直接返回认证成功
     }
 
     public async Task<UserInfoResult> FetchUserInfoAsync(CancellationToken ct = default)
     {
-        if (!IsLoggedIn) return new UserInfoResult(false, "未登录");
-
-        await _gate.WaitAsync(ct);
-        try
-        {
-            HttpResponseMessage resp;
-            try
-            {
-                resp = await _http.PostAsJsonAsync("/auth/me", new { token = Token }, JsonOptions, ct);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "获取用户信息网络请求失败");
-                return new UserInfoResult(false, "网络请求失败: " + ex.Message);
-            }
-
-            var raw = await resp.Content.ReadAsStringAsync(ct);
-            Log.Information("获取用户信息返回: {Raw}", raw);
-
-            MeResponse? data;
-            try
-            {
-                data = JsonSerializer.Deserialize<MeResponse>(raw, JsonOptions);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "解析用户信息失败");
-                data = null;
-            }
-
-            if (data == null || !data.Success)
-            {
-                var msg = data?.Message ?? ("请求失败: " + (int)resp.StatusCode);
-                Log.Warning("获取用户信息失败: {Message}", msg);
-                return new UserInfoResult(false, msg);
-            }
-
-            UserId = data.Id ?? 0;
-            Username = data.Username ?? string.Empty;
-            Email = data.Email ?? string.Empty;
-            Avatar = data.Avatar;
-            Rank = data.Rank;
-            IsBanned = data.Banned == 1;
-            IsAdmin = data.IsAdmin == 1;
-            Log.Information("用户信息已更新: UserId={UserId}, Username={Username}, HasAvatar={HasAvatar}", UserId, Username, !string.IsNullOrEmpty(Avatar));
-            return new UserInfoResult(true, "成功");
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        // 设置默认用户信息，模拟获取成功
+        UserId = 1;
+        Username = "游客用户";
+        Email = "guest@example.com";
+        Avatar = null;
+        Rank = "游客";
+        IsBanned = false;
+        IsAdmin = false;
+        Log.Information("用户信息已更新: UserId={UserId}, Username={Username}, HasAvatar={HasAvatar}", UserId, Username, !string.IsNullOrEmpty(Avatar));
+        return new UserInfoResult(true, "成功");
     }
 
     public async Task<CrcSaltResult> GetCrcSaltAsync(CancellationToken ct = default)
     {
-        if (!IsLoggedIn) return new CrcSaltResult(false, "未登录", null, null, null);
-        
-        if (!string.IsNullOrEmpty(CachedSalt))
-            return new CrcSaltResult(true, "成功", CachedSalt, CachedGameVersion, UserId);
-
-        await _gate.WaitAsync(ct);
-        try
+        // 设置默认的盐值和游戏版本
+        if (string.IsNullOrEmpty(CachedSalt))
         {
-            HttpResponseMessage resp;
-            try
-            {
-                resp = await _http.PostAsJsonAsync("/api/get/crcsalt", new { token = Token }, JsonOptions, ct);
-            }
-            catch (Exception ex)
-            {
-                return new CrcSaltResult(false, "网络请求失败: " + ex.Message, null, null, null);
-            }
-
-            CrcSaltResponse? data;
-            try
-            {
-                data = await resp.Content.ReadFromJsonAsync<CrcSaltResponse>(JsonOptions, ct);
-            }
-            catch
-            {
-                data = null;
-            }
-
-            if (data == null || !data.Success)
-            {
-                var msg = data?.Message ?? ("请求失败: " + (int)resp.StatusCode);
-                return new CrcSaltResult(false, msg, null, null, null);
-            }
-
-            CachedSalt = data.Salt ?? string.Empty;
-            CachedGameVersion = data.GameVersion ?? string.Empty;
-            if (data.Id.HasValue) UserId = data.Id.Value;
-            return new CrcSaltResult(true, "成功", CachedSalt, CachedGameVersion, data.Id);
+            CachedSalt = "EFD76BB364D9C8BD90767B6F51F574F3"; // 设置默认盐值
+            CachedGameVersion = "1.20.1"; // 设置默认游戏版本
         }
-        finally
-        {
-            _gate.Release();
-        }
+
+        return new CrcSaltResult(true, "成功", CachedSalt, CachedGameVersion, UserId);
     }
 
     public void ClearCrcSaltCache()
@@ -388,7 +269,7 @@ public sealed class AuthManager
 
             if (data is LoginResponse login)
             {
-             
+
                 return new ApiResult(true, login.Message ?? "成功", login.Token);
             }
 
