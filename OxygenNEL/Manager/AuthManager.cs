@@ -179,7 +179,7 @@ public sealed class AuthManager
         // 设置默认的盐值和游戏版本
         if (string.IsNullOrEmpty(CachedSalt))
         {
-            CachedSalt = "EFD76BB364D9C8BD90767B6F51F574F3"; // 设置默认盐值
+            CachedSalt = "421C4417360637BA22478129C9AFB8C5"; // 设置默认盐值
             CachedGameVersion = "1.20.1"; // 设置默认游戏版本
         }
 
